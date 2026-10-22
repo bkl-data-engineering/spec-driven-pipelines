@@ -1,0 +1,21 @@
+# Expected shape of the incoming file. Anything that differs triggers
+# the drift strategy chosen in the spec (source.on_schema_drift).
+name: transactions
+version: 1
+columns:
+  - {name: transaction_id, type: string}
+  - {name: user,           type: string}
+  - {name: card,           type: string}
+  - {name: year,           type: string}
+  - {name: month,          type: string}
+  - {name: day,            type: string}
+  - {name: time,           type: string}
+  - {name: amount,         type: string}
+  - {name: use_chip,       type: string}
+  - {name: merchant_name,  type: string}
+  - {name: merchant_city,  type: string}
+  - {name: merchant_state, type: string}
+  - {name: zip,            type: string}
+  - {name: mcc,            type: string}
+  - {name: errors,         type: string}
+  - {name: is_fraud,       type: string}

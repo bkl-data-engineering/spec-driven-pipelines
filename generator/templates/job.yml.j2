@@ -1,0 +1,29 @@
+# {{ header }}
+resources:
+  jobs:
+    {{ spec.pipeline }}:
+      name: {{ spec.pipeline }}
+{% if cron %}
+      schedule:
+        quartz_cron_expression: {{ cron|py }}
+        timezone_id: UTC
+{% elif spec.schedule == "continuous" %}
+      continuous:
+        pause_status: UNPAUSED
+{% endif %}
+{% if spec.alerts.target and spec.alerts.channel == "email" and "run_failure" in spec.alerts.events %}
+      email_notifications:
+        on_failure: [{{ spec.alerts.target|py }}]
+{% endif %}
+      tasks:
+        - task_key: bronze
+          # add_columns: Auto Loader stops once on a new column; the retry then succeeds.
+          max_retries: 1
+          min_retry_interval_millis: 30000
+          spark_python_task:
+            python_file: bronze.py
+        - task_key: silver
+          depends_on:
+            - task_key: bronze
+          spark_python_task:
+            python_file: silver.py

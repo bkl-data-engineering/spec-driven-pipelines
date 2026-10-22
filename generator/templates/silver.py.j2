@@ -1,0 +1,34 @@
+# {{ header }}
+# Silver transform for {{ spec.pipeline }}: typing, cleaning, DQ, dedupe.
+# Logic lives in runtime/silver.py; this file is the reviewable part.
+import pathlib
+import sys
+
+# Make the repo root importable when Databricks runs this file from a deployed bundle.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+
+from pyspark.sql import functions as F
+
+from runtime.silver import run_silver
+
+CONFIG = {{ silver_config }}
+
+# (silver column, SQL expression). try_cast => a bad value becomes NULL, never a crash.
+COLUMNS = [
+{% for c in silver_cols %}
+    ({{ c.name|py }}, {{ c.sql|py }}),
+{% endfor %}
+]
+
+
+def checks():
+    """(column, rule, condition). A row PASSES when the condition is true."""
+    return [
+{% for k in checks %}
+        ({{ k.column|py }}, {{ k.rule|py }}, {{ k.code }}),
+{% endfor %}
+    ]
+
+
+if __name__ == "__main__":
+    run_silver(CONFIG, COLUMNS, checks())

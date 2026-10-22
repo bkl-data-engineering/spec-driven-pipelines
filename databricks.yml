@@ -1,0 +1,14 @@
+# Databricks Asset Bundle root. Job definitions are generated into generated/*/job.yml.
+# Tasks have no cluster block, so they run on serverless compute (what Free Edition offers).
+bundle:
+  name: spec-driven-pipelines
+
+include:
+  - generated/*/job.yml
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://CHANGE-ME.cloud.databricks.com   # your Free Edition workspace URL
