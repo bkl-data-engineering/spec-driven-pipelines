@@ -37,15 +37,29 @@ uv run python -m unittest discover -s tests -t .
 uv run python -m generator.cli generate specs/card_transactions.yaml
 uv run python -m generator.cli generate specs/card_transactions.yaml --check   # CI: fails if generated code is stale
 ```
-Optional Spark tests: `uv add --dev pyspark` (needs Java), then `uv run python -m unittest tests.test_silver_spark -v`.
+The Spark tests (`tests/test_silver_spark.py`) run automatically when `pyspark` is installed (it is in the dev group, so `uv sync` installs it and CI runs them; they need Java 17). Without Java they error locally.
 
 ## Running on Databricks (Free Edition)
-1. Create catalog `spec_driven`; schemas `bronze`, `silver`, `landing`; volume `landing.raw`.
-2. Put CSVs in `/Volumes/spec_driven/landing/raw/transactions/`.
-3. Set your workspace host in `databricks.yml`, then `databricks bundle validate && databricks bundle deploy && databricks bundle run card_transactions`.
+1. Run `setup/00_create_objects.sql` once in the SQL editor (catalog `spec_driven`, schemas, volume `landing.raw`).
+2. Install the [Databricks CLI](https://docs.databricks.com/dev-tools/cli/install), then `databricks auth login --host <workspace URL>` (the `https://dbc-...cloud.databricks.com` address, not the numeric workspace ID).
+3. Set the same URL as `host:` in `databricks.yml`, then:
+   `databricks bundle validate && databricks bundle deploy`
+4. Upload the first sample file and run:
+   ```
+   databricks fs mkdir dbfs:/Volumes/spec_driven/landing/raw/transactions
+   databricks fs cp sample_data/run1/transactions_001.csv dbfs:/Volumes/spec_driven/landing/raw/transactions/
+   databricks bundle run card_transactions
+   ```
+   Expected: bronze 5 rows, silver 3 rows, `silver.transactions_dq_errors` 2 rows (`t0004` bad amount, `t0005` bad `is_fraud`).
+5. Drift test: copy `sample_data/run2_drift/transactions_002.csv` to the same folder and run again. Expected: an `[ALERT:schema_drift]` line in the job log, 1 row in `bronze.transactions_schema_errors`, the file moved to `.../transactions_quarantined/`, and bronze/silver counts unchanged.
+
+The job runs on serverless compute: `job.yml` declares an `environments` block, and the scripts find the repo root from the bundle path the job passes in (serverless has no `__file__`).
 
 ## Status
-Tested locally: spec validation, generator, drift logic, DQ-expression rendering.
-**Not yet run on Databricks:** `runtime/bronze.py` (Auto Loader, quarantine move), `runtime/silver.py` (streaming MERGE), the bundle config. Expect a fix or two on first run.
+CI runs the unit tests (including the Spark tests) and the generated-code check on every push.
+
+**Verified on Databricks Free Edition (serverless):** the full bronze to silver flow with `on_schema_drift: quarantine` and `on_dq_fail: quarantine`, using the sample data above (counts as listed in step 4 and 5).
+
+**Not yet tested on Databricks:** `on_schema_drift: add_columns | rescue | fail`, and `on_dq_fail: drop | warn | fail`.
 
 Known limits: CSV only; alerts are log-only; across runs the latest-arriving record per key wins (`order_by` applies within a batch); tolerated additive drift is not alerted.
