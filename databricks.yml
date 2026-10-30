@@ -11,4 +11,9 @@ targets:
     mode: development
     default: true
     workspace:
-      host: https://CHANGE-ME.cloud.databricks.com   # your Free Edition workspace URL
+      host: https://CHANGE-ME.cloud.databricks.com   # your Free Edition workspace URL (browser address bar, up to .com)
+
+sync:
+  exclude:            # keep the deployed bundle small: only code + specs go to the workspace
+    - sample_data/**
+    - tests/**

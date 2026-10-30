@@ -94,10 +94,30 @@ def process_batch(cfg, columns, checks, run_id, batch_df, batch_id) -> None:
     )
 
 
+def _ship_runtime_with_closures() -> None:
+    """On serverless (Spark Connect) the foreachBatch function runs in a separate
+    Python process that does NOT have the bundle root on sys.path, so pickling
+    process_batch by reference fails there with `ModuleNotFoundError: runtime`.
+    Pickling the runtime package by value sends the code itself instead."""
+    import runtime
+
+    for mod in ("pyspark.cloudpickle", "cloudpickle"):
+        try:
+            cp = __import__(mod, fromlist=["register_pickle_by_value"])
+            cp.register_pickle_by_value(runtime)
+        except (ImportError, AttributeError):
+            pass
+
+
 def run_silver(cfg: dict, columns, checks) -> None:
     from pyspark.sql import SparkSession
 
     spark = SparkSession.builder.getOrCreate()
+    if not spark.catalog.tableExists(cfg["source_table"]):
+        # Empty landing folder, or every file was quarantined: nothing to do yet.
+        print(f"[silver] {cfg['source_table']} does not exist yet; skipping")
+        return
+    _ship_runtime_with_closures()
     run_id = str(uuid.uuid4())
     (
         spark.readStream.table(cfg["source_table"])

@@ -53,7 +53,8 @@ def _quarantine_file(spark, cfg: dict, run_id: str, path: str, reason: str) -> N
 
     df = spark.read.option("header", "true").option("inferSchema", "false").csv(path)
     out = (
-        df.select(F.to_json(F.struct(*df.columns)).alias("_raw_record"))
+        # Backticks: a drifted header can contain dots/spaces (e.g. "Is Fraud?").
+        df.select(F.to_json(F.struct(*[F.col(f"`{c}`") for c in df.columns])).alias("_raw_record"))
         .withColumn("_source_file", F.lit(path))
         .withColumn("_file_columns", F.lit(json.dumps(df.columns)))
         .withColumn("_reason", F.lit(reason))
