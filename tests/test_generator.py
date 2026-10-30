@@ -78,3 +78,44 @@ class TestWiring(unittest.TestCase):
     def test_only_bronze_task_retries(self):
         tasks = yaml.safe_load(self.files["job.yml"])["resources"]["jobs"]["card_transactions"]["tasks"]
         self.assertEqual([t.get("max_retries") for t in tasks], [1, None])
+
+
+class TestServerless(unittest.TestCase):
+    def test_every_task_uses_the_serverless_environment(self):
+        files = render_all(load_spec(SPEC), SPEC)
+        job = yaml.safe_load(files["job.yml"])["resources"]["jobs"]["card_transactions"]
+        env_keys = {e["environment_key"] for e in job["environments"]}
+        for t in job["tasks"]:
+            self.assertIn(t["environment_key"], env_keys)
+
+
+class TestDatabricksBootstrap(unittest.TestCase):
+    """Serverless exec()s the script, so __file__ is undefined. The first Databricks run failed on this."""
+
+    def setUp(self):
+        self.files = render_all(load_spec(SPEC), SPEC)
+
+    def test_job_passes_bundle_path_to_every_task(self):
+        tasks = yaml.safe_load(self.files["job.yml"])["resources"]["jobs"]["card_transactions"]["tasks"]
+        for t in tasks:
+            self.assertEqual(t["spark_python_task"]["parameters"], ["${workspace.file_path}"])
+
+    def test_scripts_run_without___file__(self):
+        import os, sys
+        for name in ("bronze.py", "silver.py"):
+            marker = "sys.path.insert(0, _bundle_root())"
+            src = self.files[name].split(marker)[0] + marker          # the bootstrap part only
+            argv, path = sys.argv, list(sys.path)
+            try:
+                sys.argv = ["x", str(ROOT)]
+                exec(compile(src, name, "exec"), {})                # no __file__ in these globals
+                self.assertEqual(sys.path[0], str(ROOT))
+                sys.argv, cwd = ["x"], os.getcwd()
+                os.chdir(ROOT / "runtime")                          # fallback: walk up from cwd
+                try:
+                    exec(compile(src, name, "exec"), {})
+                finally:
+                    os.chdir(cwd)
+                self.assertEqual(sys.path[0], str(ROOT))
+            finally:
+                sys.argv, sys.path[:] = argv, path

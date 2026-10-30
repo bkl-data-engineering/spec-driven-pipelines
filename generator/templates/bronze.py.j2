@@ -1,11 +1,7 @@
 # {{ header }}
 # Bronze ingestion for {{ spec.pipeline }}: land the source as-is (all strings)
 # plus audit columns. Logic lives in runtime/bronze.py, shared by every pipeline.
-import pathlib
-import sys
-
-# Make the repo root importable when Databricks runs this file from a deployed bundle.
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+{% include "_bootstrap.py.j2" %}
 
 from runtime.bronze import run_bronze
 

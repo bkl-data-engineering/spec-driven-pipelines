@@ -1,11 +1,7 @@
 # {{ header }}
 # Silver transform for {{ spec.pipeline }}: typing, cleaning, DQ, dedupe.
 # Logic lives in runtime/silver.py; this file is the reviewable part.
-import pathlib
-import sys
-
-# Make the repo root importable when Databricks runs this file from a deployed bundle.
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+{% include "_bootstrap.py.j2" %}
 
 from pyspark.sql import functions as F
 

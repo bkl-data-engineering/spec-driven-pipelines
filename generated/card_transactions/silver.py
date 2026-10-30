@@ -4,8 +4,27 @@
 import pathlib
 import sys
 
-# Make the repo root importable when Databricks runs this file from a deployed bundle.
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))
+
+def _bundle_root() -> str:
+    """Find the repo root (the folder that holds runtime/).
+
+    Databricks serverless exec()s this file inside a kernel, so __file__ is NOT
+    defined there. The job passes the deployed bundle path as argument 1; the
+    other lookups cover running the file directly (local, classic compute)."""
+    starts = []
+    if len(sys.argv) > 1:
+        starts.append(pathlib.Path(sys.argv[1]))
+    if "__file__" in globals():
+        starts.append(pathlib.Path(__file__).resolve().parents[2])
+    starts.append(pathlib.Path.cwd())
+    for start in starts:
+        for folder in (start, *start.parents):
+            if (folder / "runtime").is_dir():
+                return str(folder)
+    raise RuntimeError(f"cannot find the repo root (folder with runtime/); tried {[str(s) for s in starts]}")
+
+
+sys.path.insert(0, _bundle_root())
 
 from pyspark.sql import functions as F
 
