@@ -1,0 +1,2 @@
+transaction_id,user,card,year,month,day,time,amount,use_chip,merchant_name,merchant_city,merchant_state,zip,mcc,errors,is_fraud,device_type
+t0006,7,1,2024,3,12,08:10:00,$22.10,Chip Transaction,Dunkin,Boston,MA,02110,5814,,No,mobile

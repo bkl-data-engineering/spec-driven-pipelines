@@ -1,0 +1,6 @@
+transaction_id,user,card,year,month,day,time,amount,use_chip,merchant_name,merchant_city,merchant_state,zip,mcc,errors,is_fraud
+t0001,7,1,2024,3,9,14:05:59,$134.09,Swipe Transaction,Market Basket,Boston,MA,02110,5411,,No
+t0002,7,1,2024,3,9,18:22:10,$38.48,Chip Transaction,Shell,Cambridge,MA,02139,5541,,No
+t0003,12,0,2024,3,10,02:14:33,"$1,250.00",Online Transaction,ONLINE,,,,5732,,Yes
+t0004,12,0,2024,3,10,09:01:00,abc,Chip Transaction,Starbucks,Boston,MA,02116,5814,,No
+t0005,3,2,2024,3,11,11:45:12,$12.50,Chip Transaction,CVS,Somerville,MA,02143,5912,Insufficient Balance,maybe
