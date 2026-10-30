@@ -17,6 +17,9 @@ ROOT = Path(__file__).resolve().parent.parent
 BRONZE_COLS = ["transaction_id", "user", "card", "year", "month", "day", "time", "amount", "use_chip",
                "merchant_name", "merchant_city", "merchant_state", "zip", "mcc", "errors", "is_fraud",
                "_run_id", "_source_file", "_ingestion_ts", "_load_type", "_record_hash"]
+# Bronze is all strings. An explicit schema is required: Spark can't infer a type
+# for a column that is None in every row (e.g. `errors`) -> CANNOT_DETERMINE_TYPE.
+BRONZE_SCHEMA = ", ".join(f"`{c}` string" for c in BRONZE_COLS)
 
 
 def row(**over):
@@ -45,7 +48,7 @@ class TestSplitBatch(unittest.TestCase):
 
     def run_split(self, *rows):
         from runtime.silver import split_batch
-        df = self.spark.createDataFrame(list(rows), BRONZE_COLS)
+        df = self.spark.createDataFrame(list(rows), BRONZE_SCHEMA)
         out = split_batch(df, self.gen.COLUMNS, self.gen.checks())
         return {r["transaction_id"]: r for r in out.collect()}
 

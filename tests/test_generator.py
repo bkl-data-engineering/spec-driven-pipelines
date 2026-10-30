@@ -1,4 +1,6 @@
 import ast
+import contextlib
+import io
 import unittest
 from pathlib import Path
 
@@ -45,15 +47,17 @@ class TestRender(unittest.TestCase):
 
 class TestCheckMode(unittest.TestCase):
     def test_check_detects_hand_edits(self):
-        self.assertEqual(main(["generate", str(SPEC)]), 0)
-        self.assertEqual(main(["generate", str(SPEC), "--check"]), 0)
-        target = OUT / "silver.py"
-        original = target.read_text()
-        try:
-            target.write_text(original + "\n# sneaky manual edit\n")
-            self.assertEqual(main(["generate", str(SPEC), "--check"]), 1)
-        finally:
-            target.write_text(original)
+        # Silence the CLI's prints: an expected "STALE" line in the CI log looks like a real failure.
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["generate", str(SPEC)]), 0)
+            self.assertEqual(main(["generate", str(SPEC), "--check"]), 0)
+            target = OUT / "silver.py"
+            original = target.read_text()
+            try:
+                target.write_text(original + "\n# sneaky manual edit\n")
+                self.assertEqual(main(["generate", str(SPEC), "--check"]), 1)
+            finally:
+                target.write_text(original)
 
 
 if __name__ == "__main__":

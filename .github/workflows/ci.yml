@@ -6,6 +6,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+      - uses: actions/setup-java@v4      # pyspark (dev group) needs a JVM for the Spark tests
+        with: {distribution: temurin, java-version: "17"}
       - run: uv sync
       - run: uv run python -m unittest discover -s tests -t .
       - name: Generated code must match the specs
