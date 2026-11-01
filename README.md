@@ -55,11 +55,26 @@ The Spark tests (`tests/test_silver_spark.py`) run automatically when `pyspark` 
 
 The job runs on serverless compute: `job.yml` declares an `environments` block, and the scripts find the repo root from the bundle path the job passes in (serverless has no `__file__`).
 
+## Testing the drift strategies
+Each strategy has its own spec (`specs/drift_test_<strategy>.yaml`) with a separate landing folder and tables, so scenarios never share state. After `databricks bundle deploy`:
+```
+bash scripts/drift_test.sh add_columns    # or: rescue | fail
+```
+The script loads the clean sample file, runs the job, adds the drift file (extra column `device_type`) and runs again.
+
+| Strategy | Run 2 result | Bronze | Silver |
+|---|---|---|---|
+| `add_columns` | success after one retry (Auto Loader stops once on the new column) | 6 rows, new `device_type` column | 4 rows |
+| `rescue` | success | 6 rows, extra value in `_rescued_data` | 4 rows |
+| `fail` | job fails with `SchemaDriftError`; the drift file stays in the landing folder | 5 rows | 3 rows |
+
+`tests/test_specs_isolated.py` fails if two specs share a pipeline name, landing folder or table.
+
 ## Status
 CI runs the unit tests (including the Spark tests) and the generated-code check on every push.
 
-**Verified on Databricks Free Edition (serverless):** the full bronze to silver flow with `on_schema_drift: quarantine` and `on_dq_fail: quarantine`, using the sample data above (counts as listed in step 4 and 5).
+**Verified on Databricks Free Edition (serverless):** the full bronze to silver flow, all four `on_schema_drift` strategies (`quarantine`, `add_columns`, `rescue`, `fail`) and `on_dq_fail: quarantine`.
 
-**Not yet tested on Databricks:** `on_schema_drift: add_columns | rescue | fail`, and `on_dq_fail: drop | warn | fail`.
+**Not yet tested on Databricks:** `on_dq_fail: drop | warn | fail`.
 
 Known limits: CSV only; alerts are log-only; across runs the latest-arriving record per key wins (`order_by` applies within a batch); tolerated additive drift is not alerted.
