@@ -1,0 +1,19 @@
+# Expected top-level keys of each JSON Lines record (one JSON object per line).
+# Anything that differs triggers the drift strategy chosen in the spec.
+name: fleet_trips
+version: 1
+columns:
+  - {name: trip_id,              type: string}
+  - {name: vehicle_id,           type: string}
+  - {name: driver_id,            type: string}
+  - {name: vehicle_type,         type: string}
+  - {name: start_time,           type: string}
+  - {name: end_time,             type: string}
+  - {name: distance_km,          type: string}
+  - {name: fuel_used_l,          type: string}
+  - {name: avg_speed_kph,        type: string}
+  - {name: max_speed_kph,        type: string}
+  - {name: harsh_braking_events, type: string}
+  - {name: idle_minutes,         type: string}
+  - {name: status,               type: string}
+  - {name: region,               type: string}
