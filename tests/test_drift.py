@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from runtime.drift import Action, compare, decide, read_csv_header, scan_folder
+from runtime.drift import Action, compare, decide, read_csv_header, read_json_keys, scan_folder
 
 EXPECTED = ["transaction_id", "user", "amount"]
 
@@ -59,6 +59,62 @@ class TestScan(unittest.TestCase):
             found = scan_folder(str(root), EXPECTED, "quarantine")
             self.assertEqual([Path(p).name for p, _, _ in found], ["bad.csv"])
             self.assertEqual(found[0][2].action, Action.QUARANTINE)
+
+
+class TestJsonKeys(unittest.TestCase):
+    def write(self, d, name, text):
+        p = Path(d) / name
+        p.write_text(text, encoding="utf-8")
+        return str(p)
+
+    def test_keys_are_the_union_over_all_records(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = self.write(d, "a.jsonl", '{"a": 1, "b": 2}\n\n{"a": 3, "c": 4}\n')
+            self.assertEqual(read_json_keys(p), ["a", "b", "c"])
+
+    def test_bom_is_stripped(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "bom.jsonl"
+            p.write_bytes(b'\xef\xbb\xbf{"a": 1}\n')
+            self.assertEqual(read_json_keys(str(p)), ["a"])
+
+    def test_not_json_lines_is_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            for text in ('[{"a": 1}]\n', '[\n  {"a": 1}\n]\n', '{"a": 1}\nnot json\n', '3\n'):
+                with self.assertRaises(ValueError, msg=text):
+                    read_json_keys(self.write(d, "bad.jsonl", text))
+
+
+class TestScanJson(unittest.TestCase):
+    EXPECTED_J = ["trip_id", "vehicle_id"]
+
+    def test_scan_json_finds_extra_missing_and_unreadable(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "good.jsonl").write_text('{"trip_id": "1", "vehicle_id": "v"}\n')
+            (root / "sparse.json").write_text('{"trip_id": "1"}\n{"vehicle_id": "v"}\n')   # key absent per record, not per file
+            (root / "extra.ndjson").write_text('{"trip_id": "1", "vehicle_id": "v", "score": 9}\n')
+            (root / "missing.jsonl").write_text('{"trip_id": "1"}\n')
+            (root / "array.jsonl").write_text('[{"trip_id": "1", "vehicle_id": "v"}]\n')
+            (root / "ignored.csv").write_text("x,y\n1,2\n")
+            (root / "_state").mkdir()
+            (root / "_state" / "ignored.jsonl").write_text('{"zzz": 1}\n')
+            found = {Path(p).name: (r, dec) for p, r, dec in scan_folder(str(root), self.EXPECTED_J, "quarantine", "json")}
+            self.assertEqual(sorted(found), ["array.jsonl", "extra.ndjson", "missing.jsonl"])
+            self.assertEqual(found["extra.ndjson"][0].extra, ("score",))
+            self.assertEqual(found["missing.jsonl"][0].missing, ("vehicle_id",))
+            self.assertIn("expected JSON Lines", found["array.jsonl"][0].unreadable)
+            for _, dec in found.values():
+                self.assertEqual(dec.action, Action.QUARANTINE)
+
+    def test_unreadable_files_are_never_tolerated(self):
+        with tempfile.TemporaryDirectory() as d:
+            (Path(d) / "array.jsonl").write_text('[{"trip_id": "1"}]\n')
+            expect = {"add_columns": Action.FAIL, "rescue": Action.FAIL,
+                      "quarantine": Action.QUARANTINE, "fail": Action.FAIL}
+            for strategy, action in expect.items():
+                (_, _, dec), = scan_folder(d, self.EXPECTED_J, strategy, "json")
+                self.assertEqual(dec.action, action, strategy)
 
 
 if __name__ == "__main__":

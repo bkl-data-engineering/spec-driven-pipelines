@@ -1,7 +1,8 @@
 """Bronze ingestion, shared by every generated pipeline.
 
-NOTE: the Spark parts here have NOT been run yet. The drift logic they call is
-tested (tests/test_drift.py); verify this module on Databricks first.
+Supports CSV and JSON Lines sources. The drift logic it calls is unit-tested
+(tests/test_drift.py); the Spark parts are verified by running the sample pipelines
+on Databricks (see README).
 """
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ import shutil
 import uuid
 
 from runtime import alerts
-from runtime.drift import Action, scan_folder
+from runtime.drift import Action, read_json_keys, scan_folder
 
 # spec strategy -> Auto Loader schemaEvolutionMode.
 # quarantine maps to rescue: by the time Auto Loader runs, drifted files are already gone.
@@ -33,8 +34,9 @@ def _sibling(path: str, suffix: str) -> str:
 
 
 def preflight(spark, cfg: dict, run_id: str) -> list[str]:
-    """Check every file's header before Auto Loader runs. Returns quarantined file paths."""
-    drifted = scan_folder(cfg["path"], cfg["expected_columns"], cfg["on_schema_drift"])
+    """Check every file's header (CSV) or keys (JSON Lines) before Auto Loader runs.
+    Returns quarantined file paths."""
+    drifted = scan_folder(cfg["path"], cfg["expected_columns"], cfg["on_schema_drift"], cfg["format"])
     quarantined = []
     for path, report, decision in drifted:
         if decision.action == Action.FAIL:
@@ -51,12 +53,23 @@ def preflight(spark, cfg: dict, run_id: str) -> list[str]:
 def _quarantine_file(spark, cfg: dict, run_id: str, path: str, reason: str) -> None:
     from pyspark.sql import functions as F
 
-    df = spark.read.option("header", "true").option("inferSchema", "false").csv(path)
-    out = (
+    if cfg["format"] == "json":
+        # JSON Lines: keep each original line verbatim as the raw record.
+        # spark.read.text works even when the file is not valid JSON.
+        out = spark.read.text(path).select(F.col("value").alias("_raw_record"))
+        try:
+            columns = read_json_keys(path)
+        except ValueError:
+            columns = []
+    else:
+        df = spark.read.option("header", "true").option("inferSchema", "false").csv(path)
+        columns = df.columns
         # Backticks: a drifted header can contain dots/spaces (e.g. "Is Fraud?").
-        df.select(F.to_json(F.struct(*[F.col(f"`{c}`") for c in df.columns])).alias("_raw_record"))
+        out = df.select(F.to_json(F.struct(*[F.col(f"`{c}`") for c in df.columns])).alias("_raw_record"))
+    out = (
+        out
         .withColumn("_source_file", F.lit(path))
-        .withColumn("_file_columns", F.lit(json.dumps(df.columns)))
+        .withColumn("_file_columns", F.lit(json.dumps(columns)))
         .withColumn("_reason", F.lit(reason))
         .withColumn("_run_id", F.lit(run_id))
         .withColumn("_detected_ts", F.current_timestamp())
@@ -104,8 +117,8 @@ def load(spark, cfg: dict, run_id: str) -> None:
 def run_bronze(cfg: dict) -> None:
     from pyspark.sql import SparkSession
 
-    if cfg["format"] != "csv":
-        raise NotImplementedError("v1 supports csv only (header check is csv-specific)")
+    if cfg["format"] not in ("csv", "json"):
+        raise NotImplementedError(f"format {cfg['format']!r} is not supported yet (csv and json lines only)")
     spark = SparkSession.builder.getOrCreate()
     run_id = str(uuid.uuid4())
     preflight(spark, cfg, run_id)

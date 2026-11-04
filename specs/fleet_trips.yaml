@@ -1,0 +1,57 @@
+# Second pipeline: JSON Lines fleet trips. Different format, columns, types and DQ rules
+# than card_transactions; the runtime and generator are shared unchanged (apart from JSON support).
+pipeline: fleet_trips
+owner: fleet-data-eng
+
+source:
+  format: json                       # JSON Lines: one object per line
+  path: /Volumes/spec_driven/landing/raw/fleet_trips/
+  ingest: autoloader
+  schema_file: schemas/fleet_trips_v1.yaml
+  on_schema_drift: quarantine        # add_columns | rescue | quarantine | fail
+  options: {}
+
+bronze:                              # all strings + 5 audit columns, no typing here
+  table: spec_driven.bronze.fleet_trips
+  load_type: incremental
+  quarantine_table: spec_driven.bronze.fleet_trips_schema_errors
+
+silver:
+  table: spec_driven.silver.fleet_trips
+  keys: [trip_id]
+  order_by: _ingestion_ts
+  on_dq_fail: quarantine
+  quarantine_table: spec_driven.silver.fleet_trips_dq_errors
+  columns:
+    - {name: trip_id,      type: string, checks: [{rule: not_null}]}
+    - {name: _record_hash, type: string, expr: "_record_hash"}
+    - name: vehicle_id
+      type: string
+      checks: [{rule: not_null}, {rule: regex, pattern: '^VH-\d{4}$'}]
+    - {name: driver_id,    type: string}
+    - {name: vehicle_type, type: string, checks: [{rule: in_set, values: [sedan, van, truck]}]}
+    - name: start_ts
+      type: timestamp
+      expr: "try_to_timestamp(start_time)"
+      checks: [{rule: not_null}]
+    - name: end_ts
+      type: timestamp
+      expr: "try_to_timestamp(end_time)"
+      checks: [{rule: not_null}]
+    - name: duration_min
+      type: "decimal(8,1)"
+      expr: "(unix_timestamp(try_to_timestamp(end_time)) - unix_timestamp(try_to_timestamp(start_time))) / 60"
+    - {name: distance_km,          type: "decimal(8,2)", checks: [{rule: range, min: 0, max: 2000}]}
+    - {name: fuel_used_l,          type: "decimal(8,2)", checks: [{rule: range, min: 0}]}
+    - {name: avg_speed_kph,        type: "decimal(6,2)", checks: [{rule: range, min: 0, max: 200}]}
+    - {name: max_speed_kph,        type: "decimal(6,2)", checks: [{rule: range, min: 0, max: 250}]}
+    - {name: harsh_braking_events, type: int, checks: [{rule: range, min: 0}]}
+    - {name: idle_minutes,         type: int, checks: [{rule: range, min: 0}]}
+    - {name: status,               type: string, checks: [{rule: in_set, values: [completed, aborted]}]}
+    - {name: region,               type: string}
+
+alerts:
+  events: [schema_drift, dq_threshold_breach, run_failure]
+  channel: email
+
+schedule: daily
