@@ -1,0 +1,51 @@
+# DQ policy test: same shape as card_transactions, isolated landing folder + tables.
+pipeline: dq_test_drop
+owner: fraud-data-eng
+
+source:
+  format: csv
+  path: /Volumes/spec_driven/landing/raw/dq_drop/
+  ingest: autoloader
+  schema_file: schemas/transactions_v1.yaml
+  on_schema_drift: rescue             # add_columns | rescue | quarantine | fail
+  options: {header: "true"}
+
+bronze:                              # all strings + 5 audit columns, no typing here
+  table: spec_driven.bronze.dq_drop
+  load_type: incremental
+
+silver:
+  table: spec_driven.silver.dq_drop
+  keys: [transaction_id]             # business key; latest _ingestion_ts wins on duplicates
+  order_by: _ingestion_ts
+  on_dq_fail: drop
+  columns:
+    - {name: transaction_id, type: string, checks: [{rule: not_null}]}
+    - {name: _record_hash,   type: string, expr: "_record_hash"}
+    - {name: user,  type: int,  checks: [{rule: not_null}]}
+    - {name: card,  type: int}
+    - name: event_ts
+      type: timestamp
+      expr: "try_to_timestamp(concat(year,'-',lpad(month,2,'0'),'-',lpad(day,2,'0'),' ',time), 'yyyy-MM-dd HH:mm:ss')"
+      checks: [{rule: not_null}]
+    - name: amount
+      type: "decimal(18,2)"
+      expr: "regexp_replace(amount,'[$,]','')"
+      checks: [{rule: not_null}]
+    - {name: use_chip,       type: string}
+    - {name: merchant_name,  type: string}
+    - {name: merchant_city,  type: string}
+    - {name: merchant_state, type: string}
+    - {name: zip,            type: string}
+    - {name: mcc,            type: string, checks: [{rule: regex, pattern: '^\d{4}$'}]}
+    - {name: errors,         type: string}
+    - name: is_fraud
+      type: boolean
+      expr: "CASE WHEN lower(is_fraud)='yes' THEN true WHEN lower(is_fraud)='no' THEN false END"
+      checks: [{rule: not_null}]
+
+alerts:
+  events: [schema_drift, dq_threshold_breach, run_failure]
+  channel: email
+
+schedule: manual

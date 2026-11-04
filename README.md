@@ -70,11 +70,23 @@ The script loads the clean sample file, runs the job, adds the drift file (extra
 
 `tests/test_specs_isolated.py` fails if two specs share a pipeline name, landing folder or table.
 
+## Testing the DQ policies
+Same pattern: `specs/dq_test_<policy>.yaml`, each with its own landing folder and tables. After `databricks bundle deploy`:
+```
+bash scripts/dq_test.sh drop    # or: warn | fail
+```
+It loads the sample file with two bad rows (`t0004` bad amount, `t0005` bad `is_fraud`) and runs the job.
+
+| Policy | Job result | Bronze | Silver |
+|---|---|---|---|
+| `quarantine` | success | 5 rows | 3 rows; the 2 bad rows go to `silver.quarantine_table` with reason codes |
+| `drop` | success | 5 rows | 3 rows; bad rows discarded |
+| `warn` | success; `[DQ-WARN]` line in the silver task output | 5 rows | 5 rows; bad values are `NULL` |
+| `fail` | job fails with `DataQualityError`; no silver table is created | 5 rows | none |
+
 ## Status
 CI runs the unit tests (including the Spark tests) and the generated-code check on every push.
 
-**Verified on Databricks Free Edition (serverless):** the full bronze to silver flow, all four `on_schema_drift` strategies (`quarantine`, `add_columns`, `rescue`, `fail`) and `on_dq_fail: quarantine`.
-
-**Not yet tested on Databricks:** `on_dq_fail: drop | warn | fail`.
+**Verified on Databricks Free Edition (serverless):** the full bronze to silver flow, all four `on_schema_drift` strategies (`quarantine`, `add_columns`, `rescue`, `fail`) and all four `on_dq_fail` policies (`quarantine`, `drop`, `warn`, `fail`).
 
 Known limits: CSV only; alerts are log-only; across runs the latest-arriving record per key wins (`order_by` applies within a batch); tolerated additive drift is not alerted.
