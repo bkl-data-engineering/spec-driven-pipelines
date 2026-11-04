@@ -11,7 +11,7 @@ specs/x.yaml ──validate──► generate ──► generated/x/{bronze.py, 
 ## What a spec controls
 | Section | Controls |
 |---|---|
-| `source` | file format, landing path, expected-schema file, **schema-drift strategy** |
+| `source` | file format (`csv` or `json` = JSON Lines), landing path, expected-schema file, **schema-drift strategy** |
 | `bronze` | target table, load type, audit columns (`_run_id`, `_source_file`, `_ingestion_ts`, `_load_type`, `_record_hash`) |
 | `silver` | column types and SQL expressions, DQ checks, dedupe keys, **what to do with failing rows** |
 | `alerts`, `schedule` | notification events, job schedule |
@@ -25,6 +25,8 @@ specs/x.yaml ──validate──► generate ──► generated/x/{bronze.py, 
 | `fail` | run fails | run fails |
 
 Missing columns are never tolerated silently (a wrong file would load as NULLs).
+
+For **JSON Lines** sources the "columns" are the top-level keys, taken as the union over every record in a file. A key absent from some records loads as `NULL`; a key absent from every record counts as missing. A file that is not JSON Lines (for example a pretty-printed array) is "unreadable" and is never tolerated by `add_columns` or `rescue`. Quarantined JSON files keep their original lines unchanged in the side table.
 
 ## Silver data quality (`silver.on_dq_fail`)
 `drop` | `warn` | `fail` | `quarantine` (failing rows kept as raw JSON + reason codes in `silver.quarantine_table`).
@@ -84,9 +86,19 @@ It loads the sample file with two bad rows (`t0004` bad amount, `t0005` bad `is_
 | `warn` | success; `[DQ-WARN]` line in the silver task output | 5 rows | 5 rows; bad values are `NULL` |
 | `fail` | job fails with `DataQualityError`; no silver table is created | 5 rows | none |
 
+## Second pipeline: fleet trips (JSON Lines)
+`specs/fleet_trips.yaml` is a different feed on the same runtime: JSON Lines, other columns and types, a derived `duration_min`, and DQ using all four rule types (`not_null`, `range`, `in_set`, `regex`). Silver needed no code changes for the new format. After `databricks bundle deploy`:
+```
+bash scripts/fleet_test.sh
+```
+| Run | File | Bronze | Silver | Side tables |
+|---|---|---|---|---|
+| 1 | `sample_data/fleet/trips_001.jsonl` (10 records, 4 bad) | 10 | 6 | `silver.fleet_trips_dq_errors`: 4 rows (`distance_km:range`, `vehicle_type:in_set`, `trip_id:not_null`, `vehicle_id:regex`) |
+| 2 | `sample_data/fleet/trips_002_drift.jsonl` (extra key `driver_score`) | 10 | 6 | `bronze.fleet_trips_schema_errors`: 2 rows; file moved to `.../fleet_trips_quarantined/`; `[ALERT:schema_drift]` logged |
+
 ## Status
 CI runs the unit tests (including the Spark tests) and the generated-code check on every push.
 
-**Verified on Databricks Free Edition (serverless):** the full bronze to silver flow, all four `on_schema_drift` strategies (`quarantine`, `add_columns`, `rescue`, `fail`) and all four `on_dq_fail` policies (`quarantine`, `drop`, `warn`, `fail`).
+**Verified on Databricks Free Edition (serverless):** the full bronze to silver flow, all four `on_schema_drift` strategies (`quarantine`, `add_columns`, `rescue`, `fail`), all four `on_dq_fail` policies (`quarantine`, `drop`, `warn`, `fail`), and both source formats (CSV card transactions, JSON Lines fleet trips).
 
-Known limits: CSV only; alerts are log-only; across runs the latest-arriving record per key wins (`order_by` applies within a batch); tolerated additive drift is not alerted.
+Known limits: CSV and flat JSON Lines only (no Parquet, no nested JSON); alerts are log-only; alerts are log-only; across runs the latest-arriving record per key wins (`order_by` applies within a batch); tolerated additive drift is not alerted.
